@@ -17,10 +17,11 @@
 //  */
 
 #define _CRT_SECURE_NO_WARNINGS
-#include "../../../proto/extensions.pb.h"
+#include "extensions.pb.h"
 
 #include <stdio.h>
 #include "simplelogger.h"
+#include <Windows.h>
 
 #define LOG_FILE "C:\\Temp\\DcvExtensionVirtualChannelsCPP"
 
@@ -240,6 +241,7 @@ SetupAndConnectNamedPipe(const std::string& relay_path)
 int
 main()
 {
+    printf("Hello!");
     DWORD written_bytes;
 
     sprintf_s(log_file, "%s_%i.log", LOG_FILE, GetCurrentProcessId());

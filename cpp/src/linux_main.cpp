@@ -205,8 +205,12 @@ int main() {
 
     log_f("Connect to named pipe");
 
-    // Connect to named pipe
-    int named_pipe_handle = open(msg->response().setup_virtual_channel_response().relay_path().c_str(),
+    const auto path = msg->response().setup_virtual_channel_response().relay_path();
+
+    log_f("Received path %s", path.c_str());
+
+    // Connect to named pipe // TODO: what is that relay path? we can't write to it
+    int named_pipe_handle = open(path.c_str(),
                                  O_RDWR | O_SYNC);
 
     if (named_pipe_handle == -1) {

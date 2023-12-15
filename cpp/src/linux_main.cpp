@@ -3,7 +3,14 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <cstring>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+#include <thread>
+#include <chrono>
 
 #include "extensions.pb.h"
 
@@ -174,145 +181,159 @@ void WriteMessage(ext_msg_t &msg) {
     free(buf);
 }
 
-int main() {
-    sprintf(log_file, "%s_%i.log", LOG_FILE, getpid());
-    log_init(log_file);
+int main()
+{
+  sprintf(log_file, "%s_%i.log", LOG_FILE, getpid());
+  log_init(log_file);
 
-    log_f("RequestVirtualChannel");
+  log_f("RequestVirtualChannel");
 
-    RequestVirtualChannel();
+  RequestVirtualChannel();
 
-    ext_dcv_t *msg = ReadNextMessage();
-    if (msg == nullptr) {
-        log_f("Could not get messages from stdin");
-        return -1;
-    }
+  dcv::extensions::DcvMessage *msg = ReadNextMessage();
+  if (msg == nullptr)
+  {
+      log_f("Could not get messages from stdin");
+      return -1;
+  }
 
-    log_f("Expecting a response");
+  log_f("Expecting a response");
 
-    // Expecting a response
-    if (!msg->has_response()) {
-        log_f("Unexpected message case %u", msg->msg_case());
-        delete msg;
-        return -1;
-    }
-
-    if (msg->response().status() != dcv::extensions::Response_Status::Response_Status_SUCCESS) {
-        log_f("Error in response for setup request %u", msg->response().status());
-        delete msg;
-        return -1;
-    }
-
-    log_f("Connect to named pipe");
-
-    const auto path = msg->response().setup_virtual_channel_response().relay_path();
-
-    log_f("Received path %s", path.c_str());
-
-    // Connect to named pipe // TODO: what is that relay path? we can't write to it
-    int named_pipe_handle = open(path.c_str(),
-                                 O_RDWR | O_SYNC);
-
-    if (named_pipe_handle == -1) {
-        log_f("Failed to create and setup named pipe: %s", strerror(errno));
-        delete msg;
-        return -1;
-    }
-
-    log_f("Writing auth token on named pipe");
-
-    const char* msg_ptr = &msg->response().setup_virtual_channel_response().virtual_channel_auth_token()[0];
-    bool res = WriteToHandle(named_pipe_handle,
-                              reinterpret_cast<uint8_t *>(const_cast<char*>(msg_ptr)),
-                              msg->response().setup_virtual_channel_response().virtual_channel_auth_token().length());
-
-    delete msg;
-
-    if (!res) {
-        log_f("Write failed with error: %s", strerror(errno));
-        return -1;
-    }
-
-    log_f("Wait for the event");
-
-    // Wait for the event
-    msg = ReadNextMessage();
-    if (msg == nullptr) {
-        log_f("Could not get messages from stdin");
-        return -1;
-    }
-
-    // Expecting an event
-    if (!msg->has_event()) {
-        log_f("Unexpected message case %u", msg->msg_case());
-        delete msg;
-        return -1;
-    }
-
-    // Expecting a setup event
-
-    if (msg->event().event_case() != dcv::extensions::Event::EventCase::kVirtualChannelReadyEvent) {
-        log_f("Unexpected event case %u", msg->event().event_case());
-        delete msg;
-        return -1;
-    }
-
-    log_f("Write to / Read from named pipe");
-
-    // Write to / Read from named pipe
-    for (int msg_number = 0; msg_number < 100; ++msg_number) {
-        size_t read_bytes;
-        char read_buffer[READ_BUFFER_SIZE];
-        std::string message = "C++ Test " + std::to_string(msg_number);
-
-        log_f("Write: '%s'", message.c_str());
-
-        if (!WriteToHandle(named_pipe_handle, reinterpret_cast<uint8_t*>(const_cast<char*>(message.data())), message.length() + 1)) {
-            log_f("Write failed with error: %s", strerror(errno));
-            break;
-        }
-
-        if (!ReadFromHandle(named_pipe_handle, reinterpret_cast<uint8_t*>(read_buffer), READ_BUFFER_SIZE - 1)) {
-            log_f("Read failed with error: %s", strerror(errno));
-            break;
-        }
-
-        read_buffer[read_bytes] = '\0';
-        log_f("Read: %s", read_buffer);
-        memset(read_buffer, 0, READ_BUFFER_SIZE);
-
-        sleep(1);
-    }
-
-    close(named_pipe_handle);
-
-    delete msg;
-
-    CloseVirtualChannel();
-
-    // Wait for response
-    msg = ReadNextMessage();
-    if (msg == nullptr) {
-        log_f("Could not get messages from stdin");
-        return -1;
-    }
-
-    // Expecting close response
-    if (!msg->has_response()) {
-        log_f("Unexpected message case %u", msg->msg_case());
-        delete msg;
-        return -1;
-    }
-
-    if (msg->response().status() != dcv::extensions::Response_Status::Response_Status_SUCCESS)
-    {
-      log_f("Error in response for close request %u", msg->response().status());
+  if (!msg->has_response()) // Expecting a response
+  {
+      log_f("Unexpected message case %u", msg->msg_case());
       delete msg;
       return -1;
-    }
+  }
 
+  if (msg->response().status() != dcv::extensions::Response_Status::Response_Status_SUCCESS)
+  {
+      log_f("Error in response for setup request %u", msg->response().status());
+      delete msg;
+      return -1;
+  }
+
+  log_f("Connect to channel socket");
+
+  const auto path = msg->response().setup_virtual_channel_response().relay_path();
+  log_f("Received path %s", path.c_str());
+
+  int sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+  if (sockfd == -1)
+  {
+    perror("socket");
+    return 1;
+  }
+
+  struct sockaddr_un address;
+  memset((char*)&address, 0, sizeof(address));
+  address.sun_family = AF_UNIX;
+  strcpy(&address.sun_path[1], path.c_str());
+  int len = sizeof(address.sun_family) + strlen(path.c_str()) + 1;
+
+  if (connect(sockfd, (struct sockaddr*)&address, len) == -1)
+  {
+      perror("connect");
+      close(sockfd);
+      log_f("Failed to open socket: %s", strerror(errno));
+      delete msg;
+      return -1;
+  }
+
+  log_f("Writing auth token on socket");
+
+  const char* msg_ptr = &msg->response().setup_virtual_channel_response().virtual_channel_auth_token()[0];
+  bool res = WriteToHandle(sockfd,
+                            reinterpret_cast<uint8_t *>(const_cast<char*>(msg_ptr)),
+                            msg->response().setup_virtual_channel_response().virtual_channel_auth_token().length());
+
+  delete msg;
+
+  if (!res) {
+      log_f("Write failed with error: %s", strerror(errno));
+      return -1;
+  }
+
+  log_f("Wait for the event");
+
+  // Wait for the event
+  msg = ReadNextMessage();
+  if (msg == nullptr) {
+      log_f("Could not get messages from stdin");
+      return -1;
+  }
+
+  // Expecting an event
+  if (!msg->has_event()) {
+      log_f("Unexpected message case %u", msg->msg_case());
+      delete msg;
+      return -1;
+  }
+
+  // Expecting a setup event
+
+  if (msg->event().event_case() != dcv::extensions::Event::EventCase::kVirtualChannelReadyEvent) {
+      log_f("Unexpected event case %u", msg->event().event_case());
+      delete msg;
+      return -1;
+  }
+
+  log_f("Write to / Read from named pipe");
+
+  // Write to / Read from named pipe
+  for (int msg_number = 0; msg_number < 100; ++msg_number) {
+      size_t read_bytes;
+      char read_buffer[READ_BUFFER_SIZE];
+      std::string message = "C++ Test " + std::to_string(msg_number);
+
+      log_f("Write: '%s'", message.c_str());
+
+      if (!WriteToHandle(sockfd, reinterpret_cast<uint8_t*>(const_cast<char*>(message.data())), message.length() + 1)) {
+          log_f("Write failed with error: %s", strerror(errno));
+          break;
+      }
+
+      if (!ReadFromHandle(sockfd, reinterpret_cast<uint8_t*>(read_buffer), READ_BUFFER_SIZE - 1)) {
+          log_f("Read failed with error: %s", strerror(errno));
+          break;
+      }
+
+      read_buffer[read_bytes] = '\0';
+      log_f("Read: %s", read_buffer);
+      memset(read_buffer, 0, READ_BUFFER_SIZE);
+
+      sleep(1);
+  }
+
+  close(sockfd);
+
+  delete msg;
+
+  CloseVirtualChannel();
+
+  // Wait for response
+  msg = ReadNextMessage();
+  if (msg == nullptr) {
+      log_f("Could not get messages from stdin");
+      return -1;
+  }
+
+  // Expecting close response
+  if (!msg->has_response()) {
+      log_f("Unexpected message case %u", msg->msg_case());
+      delete msg;
+      return -1;
+  }
+
+  if (msg->response().status() != dcv::extensions::Response_Status::Response_Status_SUCCESS)
+  {
+    log_f("Error in response for close request %u", msg->response().status());
     delete msg;
+    return -1;
+  }
 
-    // We closed!
-    return 0;
+  delete msg;
+
+  // We closed!
+  return 0;
 }

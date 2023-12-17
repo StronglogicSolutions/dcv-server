@@ -1,0 +1,3 @@
+[submodule "third_party/klogger"]
+	path = third_party/klogger
+	url = https://github.com/StronglogicSolutions/klogger

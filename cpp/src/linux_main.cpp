@@ -24,8 +24,6 @@ char log_file[sizeof LOG_FILE + 20];
 void
 log_init(const char* logFile)
 {
-    logFile = logFile;
-
     FILE* file = fopen(logFile, "w");
     fprintf(file, "Created\n");
     fclose(file);
@@ -43,6 +41,13 @@ log_f(const char* format,
     fprintf(file, "\n");
     va_end(args);
     fclose(file);
+}
+
+void klog(const std::string& msg)
+{
+  static const char* path = {"/tmp/dcv-channel.log"};
+  std::ofstream output(path, std::ios::app);
+  output << msg;
 }
 
 enum {
@@ -186,7 +191,7 @@ int main()
   sprintf(log_file, "%s_%i.log", LOG_FILE, getpid());
   log_init(log_file);
 
-  log_f("RequestVirtualChannel");
+  klog("RequestVirtualChannel");
 
   RequestVirtualChannel();
 
@@ -197,7 +202,7 @@ int main()
       return -1;
   }
 
-  log_f("Expecting a response");
+  klog("Expecting a response");
 
   if (!msg->has_response()) // Expecting a response
   {
@@ -213,10 +218,11 @@ int main()
       return -1;
   }
 
-  log_f("Connect to channel socket");
+  klog("Connect to channel socket");
 
   const auto path = msg->response().setup_virtual_channel_response().relay_path();
-  log_f("Received path %s", path.c_str());
+  klog("Received path");
+  klog(path);
 
   int sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (sockfd == -1)
@@ -240,7 +246,7 @@ int main()
       return -1;
   }
 
-  log_f("Writing auth token on socket");
+  klog("Writing auth token on socket");
 
   const char* msg_ptr = &msg->response().setup_virtual_channel_response().virtual_channel_auth_token()[0];
   bool res = WriteToHandle(sockfd,
@@ -254,7 +260,7 @@ int main()
       return -1;
   }
 
-  log_f("Wait for the event");
+  klog("Wait for the event");
 
   // Wait for the event
   msg = ReadNextMessage();
@@ -278,7 +284,7 @@ int main()
       return -1;
   }
 
-  log_f("Write to / Read from named pipe");
+  klog("Write to / Read from named pipe");
 
   // Write to / Read from named pipe
   for (int msg_number = 0; msg_number < 100; ++msg_number) {
@@ -286,7 +292,7 @@ int main()
       char read_buffer[READ_BUFFER_SIZE];
       std::string message = "C++ Test " + std::to_string(msg_number);
 
-      log_f("Write: '%s'", message.c_str());
+      klog(message);
 
       if (!WriteToHandle(sockfd, reinterpret_cast<uint8_t*>(const_cast<char*>(message.data())), message.length() + 1)) {
           log_f("Write failed with error: %s", strerror(errno));
@@ -299,7 +305,7 @@ int main()
       }
 
       read_buffer[read_bytes] = '\0';
-      log_f("Read: %s", read_buffer);
+      klog(read_buffer);
       memset(read_buffer, 0, READ_BUFFER_SIZE);
 
       sleep(1);

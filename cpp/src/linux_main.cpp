@@ -11,44 +11,13 @@
 #include <sstream>
 #include <thread>
 #include <chrono>
+#include <logger.hpp>
 
 #include "extensions.pb.h"
 
 #define _CRT_SECURE_NO_WARNINGS
-#define LOG_FILE "dcv.log"
 #include <stdio.h>
 #include <stdarg.h>
-
-char log_file[sizeof LOG_FILE + 20];
-
-void
-log_init(const char* logFile)
-{
-    FILE* file = fopen(logFile, "w");
-    fprintf(file, "Created\n");
-    fclose(file);
-}
-
-void
-log_f(const char* format,
-    ...)
-{
-    va_list args;
-
-    FILE* file = fopen(log_file, "a");
-    va_start(args, format);
-    vfprintf(file, format, args);
-    fprintf(file, "\n");
-    va_end(args);
-    fclose(file);
-}
-
-void klog(const std::string& msg)
-{
-  static const char* path = {"/tmp/dcv-channel.log"};
-  std::ofstream output(path, std::ios::app);
-  output << msg;
-}
 
 enum {
     READ_BUFFER_SIZE = 4096
@@ -72,7 +41,7 @@ bool ReadFromHandle(int handle, uint8_t *buffer, size_t size) {
     while (bytes_read < size) {
         ssize_t curr_read = read(handle, buffer + bytes_read, size - bytes_read);
         if (curr_read <= 0) {
-            log_f("Could not read from handle: %s", strerror(errno));
+            klog().i("Could not read from handle: {}", strerror(errno));
             return false;
         }
 
@@ -103,7 +72,7 @@ ext_dcv_t *ReadNextMessage() {
 
     ext_dcv_t *msg = new ext_dcv_t();
     if (!msg->ParseFromArray(buf, msg_sz)) {
-        log_f("Could not unpack message from stdin");
+        klog().i("Could not unpack message from stdin");
         delete msg;
         return nullptr;
     }
@@ -152,7 +121,7 @@ bool WriteToHandle(int handle, uint8_t *buffer, size_t size) {
     while (bytes_written < size) {
         ssize_t curr_written = write(handle, buffer + bytes_written, size - bytes_written);
         if (curr_written <= 0) {
-            log_f("Could not write to handle: %s", strerror(errno));
+            klog().i("Could not write to handle: {}", strerror(errno));
             return false;
         }
 
@@ -188,41 +157,40 @@ void WriteMessage(ext_msg_t &msg) {
 
 int main()
 {
-  sprintf(log_file, "%s_%i.log", LOG_FILE, getpid());
-  log_init(log_file);
+  using namespace kiq::log;
+  kiq::log::klogger::init("dcv", "trace");
 
-  klog("RequestVirtualChannel");
+  klog().i("RequestVirtualChannel");
 
   RequestVirtualChannel();
 
   dcv::extensions::DcvMessage *msg = ReadNextMessage();
   if (msg == nullptr)
   {
-      log_f("Could not get messages from stdin");
+      klog().i("Could not get messages from stdin");
       return -1;
   }
 
-  klog("Expecting a response");
+  klog().i("Expecting a response");
 
   if (!msg->has_response()) // Expecting a response
   {
-      log_f("Unexpected message case %u", msg->msg_case());
+      klog().i("Unexpected message case {}", msg->msg_case());
       delete msg;
       return -1;
   }
 
   if (msg->response().status() != dcv::extensions::Response_Status::Response_Status_SUCCESS)
   {
-      log_f("Error in response for setup request %u", msg->response().status());
+      klog().i("Error in response for setup request {}", msg->response().status());
       delete msg;
       return -1;
   }
 
-  klog("Connect to channel socket");
+  klog().i("Connect to channel socket");
 
   const auto path = msg->response().setup_virtual_channel_response().relay_path();
-  klog("Received path");
-  klog(path);
+  klog().i("Received path: {}", path);
 
   int sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (sockfd == -1)
@@ -241,12 +209,12 @@ int main()
   {
       perror("connect");
       close(sockfd);
-      log_f("Failed to open socket: %s", strerror(errno));
+      klog().i("Failed to open socket: {}", strerror(errno));
       delete msg;
       return -1;
   }
 
-  klog("Writing auth token on socket");
+  klog().i("Writing auth token on socket");
 
   const char* msg_ptr = &msg->response().setup_virtual_channel_response().virtual_channel_auth_token()[0];
   bool res = WriteToHandle(sockfd,
@@ -256,22 +224,22 @@ int main()
   delete msg;
 
   if (!res) {
-      log_f("Write failed with error: %s", strerror(errno));
+      klog().i("Write failed with error: {}", strerror(errno));
       return -1;
   }
 
-  klog("Wait for the event");
+  klog().i("Wait for the event");
 
   // Wait for the event
   msg = ReadNextMessage();
   if (msg == nullptr) {
-      log_f("Could not get messages from stdin");
+      klog().i("Could not get messages from stdin");
       return -1;
   }
 
   // Expecting an event
   if (!msg->has_event()) {
-      log_f("Unexpected message case %u", msg->msg_case());
+      klog().i("Unexpected message case {}", msg->msg_case());
       delete msg;
       return -1;
   }
@@ -279,33 +247,35 @@ int main()
   // Expecting a setup event
 
   if (msg->event().event_case() != dcv::extensions::Event::EventCase::kVirtualChannelReadyEvent) {
-      log_f("Unexpected event case %u", msg->event().event_case());
+      klog().i("Unexpected event case {}", msg->event().event_case());
       delete msg;
       return -1;
   }
 
-  klog("Write to / Read from named pipe");
+  klog().i("Write to / Read from named pipe");
 
   // Write to / Read from named pipe
   for (int msg_number = 0; msg_number < 100; ++msg_number) {
       size_t read_bytes;
       char read_buffer[READ_BUFFER_SIZE];
-      std::string message = "C++ Test " + std::to_string(msg_number);
+      std::string message = "C++ Test {}" + std::to_string(msg_number);
 
-      klog(message);
+      klog().i(message);
 
-      if (!WriteToHandle(sockfd, reinterpret_cast<uint8_t*>(const_cast<char*>(message.data())), message.length() + 1)) {
-          log_f("Write failed with error: %s", strerror(errno));
-          break;
+      if (!WriteToHandle(sockfd, reinterpret_cast<uint8_t*>(const_cast<char*>(message.data())), message.length() + 1))
+      {
+        klog().e("Write failed with error: {}", strerror(errno));
+        break;
       }
 
-      if (!ReadFromHandle(sockfd, reinterpret_cast<uint8_t*>(read_buffer), READ_BUFFER_SIZE - 1)) {
-          log_f("Read failed with error: %s", strerror(errno));
-          break;
+      if (!ReadFromHandle(sockfd, reinterpret_cast<uint8_t*>(read_buffer), READ_BUFFER_SIZE - 1))
+      {
+        klog().e("Read failed with error: {}", strerror(errno));
+        break;
       }
 
       read_buffer[read_bytes] = '\0';
-      klog(read_buffer);
+      klog().i(read_buffer);
       memset(read_buffer, 0, READ_BUFFER_SIZE);
 
       sleep(1);
@@ -319,21 +289,23 @@ int main()
 
   // Wait for response
   msg = ReadNextMessage();
-  if (msg == nullptr) {
-      log_f("Could not get messages from stdin");
+  if (msg == nullptr)
+  {
+      klog().e("Could not get messages from stdin");
       return -1;
   }
 
   // Expecting close response
-  if (!msg->has_response()) {
-      log_f("Unexpected message case %u", msg->msg_case());
+  if (!msg->has_response())
+  {
+      klog().e("Unexpected message case {}", msg->msg_case());
       delete msg;
       return -1;
   }
 
   if (msg->response().status() != dcv::extensions::Response_Status::Response_Status_SUCCESS)
   {
-    log_f("Error in response for close request %u", msg->response().status());
+    klog().e("Error in response for close request {}", msg->response().status());
     delete msg;
     return -1;
   }

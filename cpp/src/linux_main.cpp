@@ -23,6 +23,8 @@ enum {
     READ_BUFFER_SIZE = 4096
 };
 
+using namespace kiq::log;
+
 using ext_msg_t     = dcv::extensions::ExtensionMessage;
 using ext_req_t     = dcv::extensions::Request;
 using ext_dcv_t     = dcv::extensions::DcvMessage;
@@ -157,8 +159,7 @@ void WriteMessage(ext_msg_t &msg) {
 
 int main()
 {
-  using namespace kiq::log;
-  kiq::log::klogger::init("dcv", "trace");
+  klogger::init("dcv", "trace");
 
   klog().i("RequestVirtualChannel");
 

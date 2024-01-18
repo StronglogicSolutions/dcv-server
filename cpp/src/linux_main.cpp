@@ -11,17 +11,13 @@
 #include <thread>
 #include <chrono>
 #include <logger.hpp>
+#include "link/context.hpp"
 
 #include "extensions.pb.h"
 
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <stdarg.h>
-
-enum
-{
-  READ_BUFFER_SIZE = 4096
-};
 
 using namespace kiq::log;
 
@@ -31,32 +27,12 @@ using ext_dcv_t     = dcv::extensions::DcvMessage;
 using ext_svt_req_t = dcv::extensions::SetupVirtualChannelRequest;
 using ext_cvt_req_t = dcv::extensions::CloseVirtualChannelRequest;
 
-static const char g_null_terminator = '\0';
              int  last_request_id   = 1;
-
 const std::string CHANNEL_NAME = "echo";
 //-----------------------------------------------------------------
 //-----------------------------------------------------------------
 void write_msg(ext_msg_t &msg);
-//-----------------------------------------------------------------
-bool read_channel(int handle, uint8_t *buffer, size_t size)
-{
-  size_t bytes_read = 0;
 
-  while (bytes_read < size)
-  {
-    ssize_t curr_read = read(handle, buffer + bytes_read, size - bytes_read);
-    if (curr_read <= 0)
-    {
-      klog().i("Could not read from handle: {}", strerror(errno));
-      return false;
-    }
-
-    bytes_read += curr_read;
-  }
-
-  return true;
-}
 //-----------------------------------------------------------------
 ext_dcv_t *read_next_msg()
 {
@@ -117,25 +93,6 @@ void close_virtual_channel()
   write_request(request);
 }
 //-----------------------------------------------------------------
-bool write_to_channel(int handle, uint8_t *buffer, size_t size)
-{
-  size_t bytes_written = 0;
-
-  while (bytes_written < size)
-  {
-    ssize_t curr_written = write(handle, buffer + bytes_written, size - bytes_written);
-    if (curr_written <= 0)
-    {
-      klog().i("Could not write to handle: {}", strerror(errno));
-      return false;
-    }
-
-    bytes_written += curr_written;
-  }
-
-  return true;
-}
-//-----------------------------------------------------------------
 void write_msg(ext_msg_t &msg)
 {
   int msg_sz;
@@ -155,22 +112,16 @@ void write_msg(ext_msg_t &msg)
 
   free(buf);
 }
-//-----------------------------------------------------------------
-//-------------------------MAIN------------------------------------
-//-----------------------------------------------------------------
-int main()
+
+void DriverOpen()
 {
-  klogger::init("dcv", "trace");
-
-  klog().i("open_virtual_channel");
-
   open_virtual_channel();
 
   dcv::extensions::DcvMessage *msg = read_next_msg();
   if (!msg)
   {
-    klog().i("Could not get messages from stdin");
-    return -1;
+    klog().e("Could not get messages from stdin");
+    throw std::runtime_error("Failed to open virtual channel");
   }
 
   klog().i("Expecting a response");
@@ -179,14 +130,14 @@ int main()
   {
     klog().i("Unexpected message case {}", msg->msg_case());
     delete msg;
-    return -1;
+    throw std::runtime_error("Failed to open virtual channel");
   }
 
   if (msg->response().status() != dcv::extensions::Response_Status::Response_Status_SUCCESS)
   {
     klog().i("Error in response for setup request {}", msg->response().status());
     delete msg;
-    return -1;
+    throw std::runtime_error("Failed to open virtual channel");
   }
 
   klog().i("Connect to channel socket");
@@ -198,7 +149,7 @@ int main()
   if (sockfd == -1)
   {
     perror("socket");
-    return 1;
+    throw std::runtime_error("Failed to open virtual channel");
   }
 
   struct sockaddr_un address;
@@ -213,103 +164,119 @@ int main()
     close(sockfd);
     klog().i("Failed to open socket: {}", strerror(errno));
     delete msg;
-    return -1;
+    throw std::runtime_error("Failed to open virtual channel");
   }
+
+  ctx().set_channel_socket(sockfd);
 
   klog().i("Writing auth token on socket");
 
-  const char* msg_ptr = &msg->response().setup_virtual_channel_response().virtual_channel_auth_token()[0];
-  bool res = write_to_channel(sockfd,
-                            reinterpret_cast<uint8_t *>(const_cast<char*>(msg_ptr)),
-                            msg->response().setup_virtual_channel_response().virtual_channel_auth_token().length());
+  bool initialized = ctx().init
+    (msg->response().setup_virtual_channel_response().virtual_channel_auth_token());
+
   delete msg;
 
-  if (!res)
-  {
-    klog().i("Write failed with error: {}", strerror(errno));
-    return -1;
-  }
+  if (!initialized)
+    throw std::runtime_error("Failed to open virtual channel");
 
   klog().i("Wait for the event");
 
   msg = read_next_msg();
-  if (msg == nullptr)
+  if (!msg)
   {
     klog().i("Could not get messages from stdin");
-    return -1;
+    throw std::runtime_error("Failed to open virtual channel");
   }
 
   if (!msg->has_event())
   {
     klog().i("Unexpected message case {}", msg->msg_case());
     delete msg;
-    return -1;
+    throw std::runtime_error("Failed to open virtual channel");
   }
 
   if (msg->event().event_case() != dcv::extensions::Event::EventCase::kVirtualChannelReadyEvent)
   {
     klog().i("Unexpected event case {}", msg->event().event_case());
     delete msg;
-    return -1;
+    throw std::runtime_error("Failed to open virtual channel");
   }
 
-  klog().i("Write to / Read from named pipe");
-
-  for (int msg_number = 0; msg_number < 100; ++msg_number)
-  {
-    size_t read_bytes;
-    char read_buffer[READ_BUFFER_SIZE];
-    std::string message = "C++ Test {}" + std::to_string(msg_number);
-
-    klog().i(message);
-
-    if (!write_to_channel(sockfd, reinterpret_cast<uint8_t*>(const_cast<char*>(message.data())), message.length() + 1))
-    {
-      klog().e("Write failed with error: {}", strerror(errno));
-      break;
-    }
-
-    if (!read_channel(sockfd, reinterpret_cast<uint8_t*>(read_buffer), READ_BUFFER_SIZE - 1))
-    {
-      klog().e("Read failed with error: {}", strerror(errno));
-      break;
-    }
-
-    read_buffer[read_bytes] = g_null_terminator;
-    klog().i(read_buffer);
-    memset(read_buffer, 0, READ_BUFFER_SIZE);
-
-    sleep(1);
-  }
-
-  close(sockfd);
+  // TODO: Print event information
+  // DO something?
 
   delete msg;
 
+
+}
+//-----------------------------------------------------------------
+void DriverRun()
+{
+  klog().d("Running driver");
+  int sockfd = ctx().get_channel_socket();
+  // for (int msg_number = 0; msg_number < 100; ++msg_number)
+  // {
+  while (!ctx().run(0))
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  // }
+}
+//-----------------------------------------------------------------
+void DriverClose()
+{
+  int sockfd = ctx().get_channel_socket();
+  close(sockfd);
+
   close_virtual_channel();
 
-  msg = read_next_msg();
+  dcv::extensions::DcvMessage* msg = read_next_msg();
   if (!msg)
   {
     klog().e("Could not get messages from stdin");
-    return -1;
+    throw std::runtime_error("Failed to close driver");
   }
 
   if (!msg->has_response())
   {
     klog().e("Unexpected message case {}", msg->msg_case());
     delete msg;
-    return -1;
+    throw std::runtime_error("Failed to close driver");
   }
 
   if (msg->response().status() != dcv::extensions::Response_Status::Response_Status_SUCCESS)
   {
     klog().e("Error in response for close request {}", msg->response().status());
     delete msg;
-    return -1;
+    throw std::runtime_error("Failed to close driver");
   }
 
   delete msg;
+}
+//-----------------------------------------------------------------
+//-------------------------MAIN------------------------------------
+//-----------------------------------------------------------------
+int main()
+{
+  try
+  {
+    klogger::init("dcv", "trace");
+
+    klog().i("open_virtual_channel");
+
+    DriverOpen();
+
+    klog().i("Write/Read from virtual channel");
+
+    DriverRun();
+
+    // DriverClose();
+
+    return 0;
+  }
+  catch (const std::exception& e)
+  {
+    klog().e("Exception caught: {}", e.what());
+    return -1;
+  }
 
   return 0;
 }

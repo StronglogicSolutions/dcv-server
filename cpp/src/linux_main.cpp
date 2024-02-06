@@ -213,16 +213,14 @@ void DriverOpen()
 void DriverRun()
 {
   klog().d("Running driver");
-  int sockfd = ctx().get_channel_socket();
-  // for (int msg_number = 0; msg_number < 100; ++msg_number)
-  // {
   while (!ctx().run(0))
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
-  // }
+
 }
 //-----------------------------------------------------------------
 void DriverClose()
 {
+  klog().t("Closing driver");
   int sockfd = ctx().get_channel_socket();
   close(sockfd);
 
@@ -268,7 +266,9 @@ int main()
 
     DriverRun();
 
-    // DriverClose();
+    klog().i("DriverRun() completed");
+
+    DriverClose();
 
     return 0;
   }

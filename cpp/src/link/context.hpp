@@ -56,7 +56,7 @@ inline bool is_socket_readable(int socket_fd, int timeout_ms = 30)
   return true;
 }
 //------------------------------------------------------------------
-inline bool write_to_channel(int socket, uint8_t *buffer, size_t size)
+inline size_t write_to_channel(int socket, uint8_t *buffer, size_t size)
 {
   klog().d("write_to_channel called to write {} bytes to {}", size, socket);
 
@@ -66,8 +66,9 @@ inline bool write_to_channel(int socket, uint8_t *buffer, size_t size)
     ssize_t curr_written = write(socket, buffer + bytes_written, size - bytes_written);
     if (curr_written <= 0)
     {
-      klog().i("Channel write failed: {}", strerror(errno));
-      return false;
+      klog().i("Channel write failed with {} bytes written. Error:{}",
+        bytes_written, strerror(errno));
+      return 0;
     }
 
     bytes_written += curr_written;
@@ -75,10 +76,10 @@ inline bool write_to_channel(int socket, uint8_t *buffer, size_t size)
     klog().t("Wrote {} of {} bytes", bytes_written, size);
   }
 
-  return true;
+  return bytes_written;
 }
 //--------------------------------------------------------------------
-inline bool read_channel(int socket_fd, uint8_t *buffer, size_t size)
+inline size_t read_channel(int socket_fd, uint8_t *buffer, size_t size)
 {
   klog().d("read_channel called to read {} bytes from {}", size, socket_fd);
 
@@ -88,8 +89,9 @@ inline bool read_channel(int socket_fd, uint8_t *buffer, size_t size)
     ssize_t curr_read = read(socket_fd, buffer + bytes_read, size - bytes_read);
     if (curr_read <= 0)
     {
-      klog().i("Read returned {}. Could not read from socket: {}", curr_read, strerror(errno));
-      return false;
+      klog().i("Error or unable to read with {} bytes read. Last read returned {}. Last error: {}",
+        bytes_read, curr_read, strerror(errno));
+      return 0;
     }
 
     bytes_read += curr_read;
@@ -97,7 +99,7 @@ inline bool read_channel(int socket_fd, uint8_t *buffer, size_t size)
     klog().t("read {} of {} bytes", bytes_read, size);
   }
 
-  return true;
+  return bytes_read;
 }
 //--------------------------------------------------------------------
 class context

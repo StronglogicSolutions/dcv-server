@@ -1,4 +1,3 @@
-
 #include "context.hpp"
 
 //***********************************************//
@@ -10,7 +9,7 @@ bool context::init(const std::string& token)
                 token.size());
   if (!res)
   {
-    klog().i("Write failed with error: {}", strerror(errno));
+    klog().e("Write failed with error: {}", strerror(errno));
     throw std::runtime_error("Failed to open virtual channel");
   }
 
@@ -19,52 +18,50 @@ bool context::init(const std::string& token)
 //**********************************************//
 bool context::run(int id)
 {
-  klog().d("context::run()");
-  size_t read_bytes;
-  char read_buffer[READ_BUFFER_SIZE];
-
-  klog().d("Created read buffer");
-  std::string message = fmt::format("C++ Test {}", id);
-
-  klog().d("Created message: {}", message);
-
-  klog().d("Writing to channel");
-
-  if (!write_to_channel(m_socket_fd, reinterpret_cast<uint8_t*>(const_cast<char*>(message.data())), message.size() + 1))
+  try
   {
-    klog().e("Write failed with error: {}", strerror(errno));
+    klog().d("context::run()");
+    size_t      rx = 0;
+    size_t      tx = 0;
+    char        read_buffer[READ_BUFFER_SIZE];
+    std::string message       = fmt::format("C++ Test {}", getpid());
+
+    klog().d("Created read buffer");
+    klog().d("Created message: {}", message);
+    klog().d("Writing to channel");
+
+    tx = write_to_channel(m_socket_fd,
+                                    reinterpret_cast<uint8_t*>(const_cast<char*>(message.data())),
+                                    message.size());
+    if (!tx)
+    {
+      klog().e("Write failed with error: {}", strerror(errno));
+      return false;
+    }
+
+    rx = read_channel(m_socket_fd, reinterpret_cast<uint8_t*>(read_buffer), message.size());
+    if (!rx)
+    {
+      klog().e("Read failed with error: {}", strerror(errno));
+      return false;
+    }
+
+    klog().d("Deserializing");
+
+    read_buffer[rx] = g_null_terminator;
+    std::string deserialized{read_buffer, rx};
+
+    klog().d("Read from channel: {}", deserialized);
+
+    memset(read_buffer, 0, READ_BUFFER_SIZE);
+
+    return true;
+  }
+  catch (const std::exception& e)
+  {
+    klog().e("Exception caught: {}", e.what());
     return false;
   }
-
-  klog().d("Data written to channel");
-
-  if (!is_socket_readable(m_socket_fd))
-  {
-    klog().d("Not yet ready to read");
-    return false;
-  }
-
-  if (!read_channel(m_socket_fd, reinterpret_cast<uint8_t*>(read_buffer), message.size() + 1))
-  {
-    klog().e("Read failed with error: {}", strerror(errno));
-    return false;
-  }
-
-  klog().d("Reading complete");
-
-  read_buffer[read_bytes] = g_null_terminator;
-
-  klog().d("Deserializing");
-
-  std::string deserialized{read_buffer, read_bytes};
-
-  klog().d("Read from channel: {}", deserialized);
-
-  memset(read_buffer, 0, READ_BUFFER_SIZE);
-
-  sleep(1);
-
-  return true;
 }
 //**********************************************//
 void context::set_channel_socket(int socket_fd)

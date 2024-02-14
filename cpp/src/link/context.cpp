@@ -18,50 +18,42 @@ bool context::init(const std::string& token)
 //**********************************************//
 bool context::run(int id)
 {
+  klog().d( "context::run()");
   try
   {
-    klog().d("context::run()");
-    size_t      rx = 0;
-    size_t      tx = 0;
-    char        read_buffer[READ_BUFFER_SIZE];
-    std::string message       = fmt::format("C++ Test {}", getpid());
-
-    klog().d("Created read buffer");
-    klog().d("Created message: {}", message);
-    klog().d("Writing to channel");
-
-    tx = write_to_channel(m_socket_fd,
-                                    reinterpret_cast<uint8_t*>(const_cast<char*>(message.data())),
-                                    message.size());
-    if (!tx)
+    if (is_socket_readable(m_socket_fd))
     {
-      klog().e("Write failed with error: {}", strerror(errno));
-      return false;
+      char        read_buffer[READ_BUFFER_SIZE];
+      auto size = recv(m_socket_fd, read_buffer, READ_BUFFER_SIZE, 0);
+      if (size == -1)
+      {
+        klog().e( "Error reading from channel");
+      }
+
+      if (!size)
+      {
+        klog().d( "Nothing to read");
+      }
+      else
+        (void)("Write data to ZMQ socket");
     }
 
-    rx = read_channel(m_socket_fd, reinterpret_cast<uint8_t*>(read_buffer), message.size());
-    if (!rx)
+    try
     {
-      klog().e("Read failed with error: {}", strerror(errno));
-      return false;
+      if ((bool)("ZMQ socket has message"))
+        std::string{"write to channel"};
+      return true;
     }
-
-    klog().d("Deserializing");
-
-    read_buffer[rx] = g_null_terminator;
-    std::string deserialized{read_buffer, rx};
-
-    klog().d("Read from channel: {}", deserialized);
-
-    memset(read_buffer, 0, READ_BUFFER_SIZE);
-
-    return true;
+    catch (const std::exception& e)
+    {
+      klog().e( "Error while polling: {}", e.what());
+    }
   }
   catch (const std::exception& e)
   {
-    klog().e("Exception caught: {}", e.what());
-    return false;
+    klog().e( "Exception caught: {}", e.what());
   }
+  return false;
 }
 //**********************************************//
 void context::set_channel_socket(int socket_fd)

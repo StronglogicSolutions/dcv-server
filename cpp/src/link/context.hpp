@@ -8,7 +8,7 @@
 #include <INIReader.h>
 #include <assert.h>
 #include <poll.h>
-
+#include "socket/socket.hpp"
 
 #include <array>
 
@@ -119,7 +119,8 @@ private:
   context operator=(const context& c) = delete;
   context operator=(context&& c)      = delete;
 
-  int  m_socket_fd;
+  int      m_socket_fd; // Amazon NICE DCV channel
+  kiq::ipc m_endpoint;  // IPC channel
 
 };
 

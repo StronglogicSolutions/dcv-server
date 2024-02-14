@@ -1,4 +1,5 @@
 #include "context.hpp"
+#include <sys/socket.h>
 
 //***********************************************//
 bool context::init(const std::string& token)
@@ -35,13 +36,20 @@ bool context::run(int id)
         klog().d( "Nothing to read");
       }
       else
-        (void)("Write data to ZMQ socket");
+      {
+        m_endpoint.send_msg(reinterpret_cast<unsigned char*>(read_buffer), size);
+      }
     }
 
     try
     {
-      if ((bool)("ZMQ socket has message"))
-        std::string{"write to channel"};
+      if (m_endpoint.has_msgs())
+      {
+        const auto msg     = m_endpoint.get_msg();
+              auto payload = static_cast<kiq::dcv_message*>(msg.get())->payload();
+        if (!write_to_channel(m_socket_fd, payload.data(), payload.size()))
+          throw std::runtime_error("Failed to write message to channel");
+      }
       return true;
     }
     catch (const std::exception& e)

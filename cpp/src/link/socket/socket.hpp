@@ -1,22 +1,22 @@
 #include <deque>
 #include <future>
-#include <zmq.hpp>
+#include "ipc.hpp"
 
 //----------------------------------------------------------------
 namespace kiq
 {
+using ipc_msg_t = ipc_message::u_ipc_msg_ptr;
 //-------------------------------------------------------------
-class server
+class ipc
 {
 public:
-  server();
-  ~server();
+  ipc();
+  ~ipc();
 
   bool      is_active()                    const;
   bool      has_msgs ()                    const;
-  void      reply    (bool success = true);
   ipc_msg_t get_msg  ();
-  void      send_msg (ipc_msg_t);
+  void      send_msg(unsigned char* data, size_t size);
   void      reset    ();
 
 private:

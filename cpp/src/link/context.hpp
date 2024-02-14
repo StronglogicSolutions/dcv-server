@@ -107,10 +107,10 @@ class context
 public:
   static context&     instance();
 
-  bool           run(int id);
-  int            get_channel_socket() const;
-  void           set_channel_socket(int socket_fd);
-  bool           init(const std::string& token);
+  bool run(int id);
+  int  get_channel_socket() const;
+  void set_channel_socket(int socket_fd);
+  bool init(const std::string& token);
 
 private:
   context()                           = default;

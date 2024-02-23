@@ -1,29 +1,31 @@
 #include "socket.hpp"
 #include <logger.hpp>
+#include <unistd.h>
 
-static const char* RX_ADDR{"tcp://0.0.0.0:66465"};
-static const char* TX_ADDR{"tcp://0.0.0.0:66466"};
+static const char* RX_ADDR{"tcp://0.0.0.0:62466"};
+static const char* TX_ADDR{"tcp://0.0.0.0:62467"};
 
 using namespace kiq::log;
 namespace kiq
 {
 ipc::ipc()
-: context_{1},
-  rx_(context_, ZMQ_ROUTER),
-  tx_(context_, ZMQ_DEALER)
 {
-  rx_.set(zmq::sockopt::linger, 0);
-  tx_.set(zmq::sockopt::linger, 0);
-  rx_.set(zmq::sockopt::routing_id, "dcv_server");
-  tx_.set(zmq::sockopt::routing_id, "dcv_server_tx");
-  rx_.set(zmq::sockopt::tcp_keepalive, 1);
-  tx_.set(zmq::sockopt::tcp_keepalive, 1);
-  rx_.set(zmq::sockopt::tcp_keepalive_idle,  300);
-  tx_.set(zmq::sockopt::tcp_keepalive_idle,  300);
-  rx_.set(zmq::sockopt::tcp_keepalive_intvl, 300);
-  tx_.set(zmq::sockopt::tcp_keepalive_intvl, 300);
+  if ((sx_ = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+  {
+    klog().e("Error creating socket");
+    throw std::runtime_error("Error creating socket");
+  }
 
-  kiq::set_log_fn([](const char* message) { klog().d(message); } );
+  sx_addr_.sin_family      = AF_INET;
+  sx_addr_.sin_port        = htons(62466);
+  sx_addr_.sin_addr.s_addr = INADDR_ANY;
+
+  if (bind(sx_, (struct sockaddr*)&sx_addr_, sizeof(sx_addr_)) == -1)
+  {
+    klog().e("Error binding socket");
+    close(sx_);
+    throw std::runtime_error("Error binding socket");
+  }
 
   start();
 }
@@ -35,13 +37,10 @@ ipc::~ipc()
 //----------------------------------
 void ipc::start()
 {
+  active_ = true;
   try
   {
-    rx_.bind   (RX_ADDR);
-    tx_.connect(TX_ADDR);
-
     future_ = std::async(std::launch::async, [this] { run(); });
-    klog().i("Server listening on {}", RX_ADDR);
   }
   catch (const std::exception& e)
   {
@@ -49,10 +48,41 @@ void ipc::start()
   }
 }
 //----------------------------------
+void ipc::listen_for_cxn()
+{
+  if (listen(sx_, 5) == -1)
+  {
+    klog().e("Error listening for connections");
+    close(sx_);
+    return;
+  }
+
+  klog().d("Server listening on port 62466...");
+
+  while (true)
+  {
+    struct sockaddr_in client_addr;
+           socklen_t   addr_len = sizeof(client_addr);
+
+    if ((client_fd_ = accept(sx_, (struct sockaddr*)&client_addr, &addr_len)) == -1)
+    {
+      klog().e("Error accepting connection");
+      continue;
+    }
+
+    klog().d("Connection accepted from {}:{}",
+      inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+
+    handle();
+
+    close(client_fd_);
+
+    client_fd_ = -1;
+  }
+}
+//----------------------------------
 void ipc::stop()
 {
-  rx_.disconnect(RX_ADDR);
-  tx_.disconnect(TX_ADDR);
   active_ = false;
   if (future_.valid())
     future_.wait();
@@ -71,9 +101,9 @@ bool ipc::is_active() const
   return active_;
 }
 //----------------------------------
-ipc_msg_t ipc::get_msg()
+ipc_buf_t ipc::get_msg()
 {
-  ipc_msg_t msg = std::move(msgs_.front());
+  ipc_buf_t msg = msgs_.front();
   msgs_.pop_front();
   return msg;
 }
@@ -87,61 +117,39 @@ void ipc::run()
 {
   klog().d("Receive worker initiated");
   while (active_)
-    recv();
+    listen_for_cxn();
 }
 //----------------------------------
-void ipc::recv()
+void ipc::handle()
 {
-  // using namespace kutils;
-  using buffers_t = std::vector<ipc_message::byte_buffer>;
+  ipc_buf_t buffer;
+  buffer.resize(16384);
 
-  zmq::message_t identity;
-  if (!rx_.recv(identity) || identity.empty())
+  while (client_fd_)
   {
-    klog().i("Socket failed to receive");
-    return;
+    ssize_t bytes_rx = recv(client_fd_, buffer.data(), buffer.size(), 0);
+    if (bytes_rx <= 0)
+    {
+      klog().e("Error receiving data from client");
+      return;
+    }
+
+    buffer[bytes_rx] = '\0';
+    klog().t("Received from Node.js client: {}", std::string{
+      reinterpret_cast<char*>(buffer.data()), reinterpret_cast<char*>(buffer.data()) + bytes_rx + 1});
+
+    klog().d("Received message");
+
+    msgs_.push_back(ipc_buf_t{ buffer.data(), buffer.data() + bytes_rx + 1 });
   }
-
-  buffers_t      buffer;
-  zmq::message_t msg;
-  int            more_flag{1};
-
-  while (more_flag && rx_.recv(msg))
-  {
-    more_flag = rx_.get(zmq::sockopt::rcvmore);
-    buffer.push_back( {static_cast<char*>(msg.data()),
-                       static_cast<char*>(msg.data()) + msg.size() });
-  }
-
-  ipc_msg_t  ipc_msg = DeserializeIPCMessage(std::move(buffer));
-  if (!ipc_msg)
-  {
-    klog().e("Failed to deserialize IPC message");
-    return;
-  }
-
-  msgs_.push_back(std::move(ipc_msg));
 }
 //------------------------------------
 void ipc::send_msg(unsigned char* data, size_t size)
 {
-  ipc_message::byte_buffer buffer    = {data, data + size};
-  dcv_message              msg       = {buffer};
-  const auto&              payload   = msg.data();
-  const auto               frame_num = payload.size();
+  klog().d("Sending IPC message of size {}", size);
 
-  klog().d("Sending IPC message: {}", msg.type());
-
-  for (uint32_t i = 0; i < frame_num; i++)
-  {
-    auto flag = i == (frame_num - 1) ? zmq::send_flags::none : zmq::send_flags::sndmore;
-    auto data = payload.at(i);
-
-    zmq::message_t message{data.size()};
-    std::memcpy(message.data(), data.data(), data.size());
-
-    tx_.send(message, flag);
-  }
+  if (send(client_fd_, data, size, 0) == -1)
+    klog().e("Error sending data to client");
 }
 
 } // ns kiq

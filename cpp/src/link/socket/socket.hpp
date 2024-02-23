@@ -1,11 +1,12 @@
+#include <arpa/inet.h>
 #include <deque>
 #include <future>
-#include "ipc.hpp"
+#include <vector>
 
 //----------------------------------------------------------------
 namespace kiq
 {
-using ipc_msg_t = ipc_message::u_ipc_msg_ptr;
+using ipc_buf_t = std::vector<uint8_t>;
 //-------------------------------------------------------------
 class ipc
 {
@@ -15,20 +16,26 @@ public:
 
   bool      is_active()                    const;
   bool      has_msgs ()                    const;
-  ipc_msg_t get_msg  ();
+  ipc_buf_t get_msg  ();
   void      send_msg(unsigned char* data, size_t size);
   void      reset    ();
+  bool      has_client()
+  {
+    return client_fd_ != -1;
+  }
 
 private:
   void      stop     ();
   void      start    ();
+  void      listen_for_cxn   ();
   void      run();
-  void      recv();
-  zmq::context_t             context_;
-  zmq::socket_t              rx_;
-  zmq::socket_t              tx_;
+  void      handle();
+
+  int                        sx_       {-1};
+  int                        client_fd_{-1};
+  struct sockaddr_in         sx_addr_;
   std::future<void>          future_;
-  bool                       active_{true};
-  std::deque<kiq::ipc_msg_t> msgs_;
+  bool                       active_   {true};
+  std::deque<ipc_buf_t>      msgs_;
 }; // server
 } // ns kiq

@@ -24,32 +24,32 @@ bool context::run(int id)
   {
     if (is_socket_readable(m_socket_fd))
     {
-      char        read_buffer[READ_BUFFER_SIZE];
+      char read_buffer[READ_BUFFER_SIZE];
       auto size = recv(m_socket_fd, read_buffer, READ_BUFFER_SIZE, 0);
       if (size == -1)
-      {
-        klog().e( "Error reading from channel");
-      }
-
-      if (!size)
-      {
-        klog().d( "Nothing to read");
-      }
+        klog().e("Error reading from channel");
       else
-      {
+      if (!size)
+        klog().d( "Nothing to read");
+      else
         m_endpoint.send_msg(reinterpret_cast<unsigned char*>(read_buffer), size);
-      }
     }
 
     try
     {
       if (m_endpoint.has_msgs())
       {
-        const auto msg     = m_endpoint.get_msg();
-              auto payload = static_cast<kiq::dcv_message*>(msg.get())->payload();
-        if (!write_to_channel(m_socket_fd, payload.data(), payload.size()))
-          throw std::runtime_error("Failed to write message to channel");
+        const auto msg   = m_endpoint.get_msg();
+        const auto msg_s = std::string{
+          reinterpret_cast<char*>(const_cast<unsigned char*>(msg.data())),
+          reinterpret_cast<char*>(const_cast<unsigned char*>(msg.data())) + msg.size()};
+
+        klog().i("Has message to send. Sending:\n{}", msg_s);
+
+        if (!write_to_channel(m_socket_fd, const_cast<uint8_t*>(msg.data()), msg.size()))
+          return false;
       }
+
       return true;
     }
     catch (const std::exception& e)
@@ -61,6 +61,7 @@ bool context::run(int id)
   {
     klog().e( "Exception caught: {}", e.what());
   }
+
   return false;
 }
 //**********************************************//

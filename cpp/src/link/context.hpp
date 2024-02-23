@@ -8,7 +8,7 @@
 #include <INIReader.h>
 #include <assert.h>
 #include <poll.h>
-
+#include "socket/socket.hpp"
 
 #include <array>
 
@@ -107,10 +107,10 @@ class context
 public:
   static context&     instance();
 
-  bool           run(int id);
-  int            get_channel_socket() const;
-  void           set_channel_socket(int socket_fd);
-  bool           init(const std::string& token);
+  bool run(int id);
+  int  get_channel_socket() const;
+  void set_channel_socket(int socket_fd);
+  bool init(const std::string& token);
 
 private:
   context()                           = default;
@@ -119,7 +119,8 @@ private:
   context operator=(const context& c) = delete;
   context operator=(context&& c)      = delete;
 
-  int  m_socket_fd;
+  int      m_socket_fd; // Amazon NICE DCV channel
+  kiq::ipc m_endpoint;  // IPC channel
 
 };
 

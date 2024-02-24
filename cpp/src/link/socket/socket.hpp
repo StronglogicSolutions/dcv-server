@@ -31,8 +31,8 @@ private:
   void      run();
   void      handle();
 
-  int                        sx_       {-1};
-  int                        client_fd_{-1};
+  int                        sx_       {0};
+  int                        client_fd_{0};
   struct sockaddr_in         sx_addr_;
   std::future<void>          future_;
   bool                       active_   {true};

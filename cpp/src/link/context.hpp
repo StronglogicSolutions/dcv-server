@@ -119,10 +119,9 @@ private:
   context operator=(const context& c) = delete;
   context operator=(context&& c)      = delete;
 
-  int      m_socket_fd; // Amazon NICE DCV channel
+  int      m_socket_fd; // DCV channel
   kiq::ipc m_endpoint;  // IPC channel
 
 };
 
 extern context& ctx();
-

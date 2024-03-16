@@ -139,13 +139,13 @@ void ipc::handle()
       return;
     }
 
-    buffer[bytes_rx] = '\0';
+    // buffer[bytes_rx] = '\0';
     klog().t("Received from Node.js client: {}", std::string{
-      reinterpret_cast<char*>(buffer.data()), reinterpret_cast<char*>(buffer.data()) + bytes_rx + 1});
+      reinterpret_cast<char*>(buffer.data()), reinterpret_cast<char*>(buffer.data()) + bytes_rx});
 
     klog().d("Received message");
 
-    msgs_.push_back(ipc_buf_t{ buffer.data(), buffer.data() + bytes_rx + 1 });
+    msgs_.push_back(ipc_buf_t{ buffer.data(), buffer.data() + bytes_rx });
   }
 }
 //------------------------------------
@@ -153,7 +153,7 @@ void ipc::send_msg(unsigned char* data, size_t size)
 {
   klog().d("Sending IPC message of size {}", size);
 
-  if (send(client_fd_, data, size, 0) == )
+  if (send(client_fd_, data, size, 0) == -1)
     klog().e("Error sending data to client");
 }
 

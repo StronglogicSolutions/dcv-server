@@ -33,7 +33,6 @@ static const char g_null_terminator = '\0';
 //------------------------------------------------------------------
 inline bool is_socket_readable(int socket_fd, int timeout_ms = 30)
 {
-  klog().d("Polling socket");
   struct pollfd pfd;
 
   pfd.fd     = socket_fd;
@@ -47,10 +46,7 @@ inline bool is_socket_readable(int socket_fd, int timeout_ms = 30)
     return false;
   }
   else if (result == 0)
-  {
-    klog().t("No data to read from {}", socket_fd);
     return false;
-  }
 
   klog().d("Socket ready to be read");
   return true;
@@ -107,7 +103,7 @@ class context
 public:
   static context&     instance();
 
-  bool run(int id);
+  bool run();
   int  get_channel_socket() const;
   void set_channel_socket(int socket_fd);
   bool init(const std::string& token);

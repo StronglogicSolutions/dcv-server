@@ -17,22 +17,24 @@ bool context::init(const std::string& token)
   return true;
 }
 //**********************************************//
-bool context::run(int id)
+bool context::run()
 {
-  klog().d( "context::run()");
   try
   {
-    if (is_socket_readable(m_socket_fd))
+    if (is_socket_readable(m_socket_fd, 100)) // This sets the work-rate of our program
     {
+      klog().i("reading from {}", m_socket_fd);
       char read_buffer[READ_BUFFER_SIZE];
       auto size = recv(m_socket_fd, read_buffer, READ_BUFFER_SIZE, 0);
       if (size == -1)
         klog().e("Error reading from channel");
       else
-      if (!size)
-        klog().d( "Nothing to read");
-      else
+      if (size)
+      {
+        std::string out_msg{read_buffer, static_cast<size_t>(size)};
+        klog().d("Outbound message:\n{}", out_msg);
         m_endpoint.send_msg(reinterpret_cast<unsigned char*>(read_buffer), size);
+      }
     }
 
     try

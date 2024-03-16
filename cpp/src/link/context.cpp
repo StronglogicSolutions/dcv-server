@@ -17,12 +17,11 @@ bool context::init(const std::string& token)
   return true;
 }
 //**********************************************//
-bool context::run(int id)
+bool context::run()
 {
-  klog().d( "context::run()");
   try
   {
-    if (is_socket_readable(m_socket_fd))
+    if (is_socket_readable(m_socket_fd, 100))
     {
       char read_buffer[READ_BUFFER_SIZE];
       auto size = recv(m_socket_fd, read_buffer, READ_BUFFER_SIZE, 0);

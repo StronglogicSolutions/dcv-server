@@ -100,14 +100,11 @@ void write_msg(ext_msg_t &msg)
   uint8_t *buf = new uint8_t[msg_sz];
   msg.SerializeToArray(buf, msg_sz);
 
-  if (!write_to_channel(STDOUT_FILENO, reinterpret_cast<uint8_t *>(&msg_sz), sizeof(msg_sz)))
+  if (write_to_channel(STDOUT_FILENO, reinterpret_cast<uint8_t *>(&msg_sz), sizeof(msg_sz)))
   {
-    delete[] buf;
-    return;
+    write_to_channel(STDOUT_FILENO, buf, msg_sz);
+    fsync(STDOUT_FILENO);
   }
-
-  write_to_channel(STDOUT_FILENO, buf, msg_sz);
-  fsync(STDOUT_FILENO);
 
   delete[] buf;
 }
@@ -202,7 +199,6 @@ void DriverOpen()
   }
 
   delete msg;
-
 
 }
 //-----------------------------------------------------------------

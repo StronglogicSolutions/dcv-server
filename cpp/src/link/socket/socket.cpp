@@ -139,11 +139,8 @@ void ipc::handle()
       return;
     }
 
-    // buffer[bytes_rx] = '\0';
-    klog().t("Received from Node.js client: {}", std::string{
+    klog().t("Received from client application: {}", std::string{
       reinterpret_cast<char*>(buffer.data()), reinterpret_cast<char*>(buffer.data()) + bytes_rx});
-
-    klog().d("Received message");
 
     msgs_.push_back(ipc_buf_t{ buffer.data(), buffer.data() + bytes_rx });
   }

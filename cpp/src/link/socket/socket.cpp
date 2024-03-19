@@ -1,25 +1,34 @@
 #include "socket.hpp"
+#include <cstdlib>
 #include <logger.hpp>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <deque>
+#include <future>
+#include <vector>
 
 static const char* RX_ADDR{"tcp://0.0.0.0:62466"};
 static const char* TX_ADDR{"tcp://0.0.0.0:62467"};
 static const int   SCK_ERR{-1};
+static const char* SK_PATH{"/home/ubuntu/dcv.sock"};
 
 using namespace kiq::log;
 namespace kiq
 {
+//----------------------------------
 ipc::ipc()
 {
-  if ((sx_ = socket(AF_INET, SOCK_STREAM, 0)) == SCK_ERR)
+  if ((sx_ = socket(AF_UNIX, SOCK_STREAM, 0)) == SCK_ERR)
   {
     klog().e("Error creating socket");
     throw std::runtime_error("Error creating socket");
   }
 
-  sx_addr_.sin_family      = AF_INET;
-  sx_addr_.sin_port        = htons(62466);
-  sx_addr_.sin_addr.s_addr = INADDR_ANY;
+  memset((char*)&sx_addr_, 0, sizeof(sx_addr_));
+  sx_addr_.sun_family = AF_UNIX;
+  strcpy(sx_addr_.sun_path, SK_PATH);
+
 
   if (bind(sx_, (struct sockaddr*)&sx_addr_, sizeof(sx_addr_)) == SCK_ERR)
   {
@@ -101,21 +110,21 @@ void ipc::listen_for_cxn()
     return;
   }
 
-  klog().d("Server listening on port 62466...");
+  klog().d("Server listening on unix socket on {}", SK_PATH);
+
+  struct sockaddr_un client_addr;
+  socklen_t          addr_len;
 
   while (true)
   {
-    struct sockaddr_in client_addr;
-           socklen_t   addr_len = sizeof(client_addr);
-
+    addr_len = sizeof(client_addr);
     if ((client_fd_ = accept(sx_, (struct sockaddr*)&client_addr, &addr_len)) == SCK_ERR)
     {
       klog().e("Error accepting connection");
       continue;
     }
 
-    klog().d("Connection accepted from {}:{}",
-      inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+    klog().d("Connection accepted on {}", client_addr.sun_path);
 
     handle();
 

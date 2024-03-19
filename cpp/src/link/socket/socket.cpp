@@ -8,10 +8,8 @@
 #include <future>
 #include <vector>
 
-static const char* RX_ADDR{"tcp://0.0.0.0:62466"};
-static const char* TX_ADDR{"tcp://0.0.0.0:62467"};
 static const int   SCK_ERR{-1};
-static const char* SK_PATH{"/home/ubuntu/dcv.sock"};
+static const char* SK_PATH{"/tmp/dcv.sock"};
 
 using namespace kiq::log;
 namespace kiq

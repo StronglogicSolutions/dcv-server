@@ -10,7 +10,6 @@
 #include <sstream>
 #include <thread>
 #include <chrono>
-#include <logger.hpp>
 #include "link/context.hpp"
 
 #include "extensions.pb.h"
@@ -101,16 +100,13 @@ void write_msg(ext_msg_t &msg)
   uint8_t *buf = new uint8_t[msg_sz];
   msg.SerializeToArray(buf, msg_sz);
 
-  if (!write_to_channel(STDOUT_FILENO, reinterpret_cast<uint8_t *>(&msg_sz), sizeof(msg_sz)))
+  if (write_to_channel(STDOUT_FILENO, reinterpret_cast<uint8_t *>(&msg_sz), sizeof(msg_sz)))
   {
-    free(buf);
-    return;
+    write_to_channel(STDOUT_FILENO, buf, msg_sz);
+    fsync(STDOUT_FILENO);
   }
 
-  write_to_channel(STDOUT_FILENO, buf, msg_sz);
-  fsync(STDOUT_FILENO);
-
-  free(buf);
+  delete[] buf;
 }
 
 void DriverOpen()
@@ -202,19 +198,15 @@ void DriverOpen()
     throw std::runtime_error("Failed to open virtual channel");
   }
 
-  // TODO: Print event information
-  // DO something?
-
   delete msg;
-
 
 }
 //-----------------------------------------------------------------
 void DriverRun()
 {
   klog().d("Running driver");
-  while (!ctx().run(0))
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  while (ctx().run()) // will block 100ms
+    ;
 
 }
 //-----------------------------------------------------------------
@@ -256,7 +248,7 @@ int main()
 {
   try
   {
-    klogger::init("dcv", "trace");
+    klogger::init("dcv", "trace", false);
 
     klog().i("open_virtual_channel");
 

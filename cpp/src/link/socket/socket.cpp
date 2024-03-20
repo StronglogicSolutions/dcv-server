@@ -1,5 +1,6 @@
 #include "socket.hpp"
 #include <cstdlib>
+#include <filesystem>
 #include <logger.hpp>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -17,6 +18,9 @@ namespace kiq
 //----------------------------------
 ipc::ipc()
 {
+  if (std::filesystem::remove(SK_PATH))
+    klog().w("Failed to remove previous socket file");
+
   if ((sx_ = socket(AF_UNIX, SOCK_STREAM, 0)) == SCK_ERR)
   {
     klog().e("Error creating socket");
